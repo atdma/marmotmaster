@@ -207,10 +207,9 @@ func (s *Server) HandleAuthenticate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return token and signing key (clients need this to verify signatures)
+	// Return only the token (UI doesn't need signing key, only clients do)
 	response := map[string]interface{}{
-		"token":       token,
-		"signing_key": base64.StdEncoding.EncodeToString(s.GetSigningKey()),
+		"token": token,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -219,27 +218,7 @@ func (s *Server) HandleAuthenticate(w http.ResponseWriter, r *http.Request) {
 
 // HandleWebUIConnection handles new web UI WebSocket connections
 func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
-	// Get token from query parameter or Authorization header
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		// Try Authorization header
-		authHeader := r.Header.Get("Authorization")
-		if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
-			token = authHeader[7:]
-		}
-	}
-
-	// Validate session token if password protection is enabled
-	authenticated := s.uiPasswordHash == nil // If no password required, auto-authenticate
-	if s.uiPasswordHash != nil {
-		if !s.ValidateSession(token) {
-			log.Printf("Web UI connection rejected: invalid or missing token")
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		authenticated = true
-	}
-
+	// Upgrade connection first (no token validation at HTTP level)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -249,7 +228,7 @@ func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
 	uiConn := &UIConnection{
 		Conn:          conn,
 		LastPong:      time.Now(),
-		Authenticated: authenticated,
+		Authenticated: s.uiPasswordHash == nil, // If no password required, auto-authenticate
 	}
 	
 	// Set read deadline for connection health checks
@@ -310,6 +289,49 @@ func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
 		conn.Close()
 	}()
 
+	// If password protection is enabled, wait for authentication token as first message
+	if s.uiPasswordHash != nil {
+		// Set a short deadline for authentication
+		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("Failed to read authentication token: %v", err)
+			conn.Close()
+			return
+		}
+
+		var authMsg struct {
+			Type  string `json:"type"`
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(message, &authMsg); err != nil {
+			log.Printf("Invalid authentication message format: %v", err)
+			conn.Close()
+			return
+		}
+
+		if authMsg.Type != "authenticate" || !s.ValidateSession(authMsg.Token) {
+			log.Printf("Web UI connection rejected: invalid or missing token")
+			conn.WriteMessage(websocket.TextMessage, safeMarshal(map[string]interface{}{
+				"type":    "auth_error",
+				"message": "Invalid or missing authentication token",
+			}))
+			conn.Close()
+			return
+		}
+
+		// Authentication successful
+		uiConn.mu.Lock()
+		uiConn.Authenticated = true
+		uiConn.mu.Unlock()
+
+		// Send authentication success message
+		conn.WriteMessage(websocket.TextMessage, safeMarshal(map[string]interface{}{
+			"type": "auth_success",
+		}))
+	}
+
 	// Send initial client list
 	s.clientsMu.RLock()
 	clientList := make([]map[string]interface{}, 0, len(s.clients))
@@ -364,6 +386,11 @@ func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
 		var msg Message
 		if err := json.Unmarshal(message, &msg); err != nil {
 			log.Printf("Error unmarshaling message: %v", err)
+			continue
+		}
+
+		// Skip authentication messages (already handled)
+		if msg.Type == "authenticate" {
 			continue
 		}
 

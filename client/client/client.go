@@ -188,9 +188,14 @@ func (c *Client) SelfDestruct() {
 
 // verifySignature verifies the HMAC signature of a message
 func (c *Client) verifySignature(msg Message) bool {
-	// If no signing key yet, allow messages (for initial connection)
+	// If no signing key yet, reject all command messages (except ping/pong/signing_key)
+	// This prevents unsigned commands from being executed during the initial connection window
 	if len(c.signingKey) == 0 {
-		return true
+		if msg.Type != "ping" && msg.Type != "pong" && msg.Type != "signing_key" {
+			log.Printf("Rejecting unsigned message before signing key received: %s", msg.Type)
+			return false
+		}
+		return true // Allow ping/pong/signing_key before key is received
 	}
 
 	// If no signature provided, reject (except for ping/pong)
