@@ -27,7 +27,7 @@ type MessageHandler interface {
 	Handle(s *Server, msg Message) error
 }
 
-// sendMessageToClient sends a message to a specific client
+// sendMessageToClient sends a signed message to a specific client
 func (s *Server) sendMessageToClient(clientID string, message Message, errorMsg string) error {
 	s.clientsMu.RLock()
 	targetClient, ok := s.clients[clientID]
@@ -35,6 +35,14 @@ func (s *Server) sendMessageToClient(clientID string, message Message, errorMsg 
 
 	if !ok {
 		return fmt.Errorf("client %s not found", clientID)
+	}
+
+	// Sign the message before sending (if not already signed)
+	if message.Signature == "" {
+		if message.Timestamp == "" {
+			message.Timestamp = time.Now().Format(time.RFC3339)
+		}
+		message.Signature = s.SignMessage(message.Type, clientID, message.Data, message.Timestamp)
 	}
 
 	msgJSON := safeMarshal(message)
@@ -89,12 +97,18 @@ func (h *TerminalResizeHandler) Validate(msg Message) error {
 }
 
 func (h *TerminalResizeHandler) Handle(s *Server, msg Message) error {
+	// For resize, we need to include rows/cols in the signature payload
+	timestamp := time.Now().Format(time.RFC3339)
+	data := fmt.Sprintf("%d:%d", msg.Rows, msg.Cols)
 	cmdMsg := Message{
 		Type:      "terminal_resize",
 		Rows:      msg.Rows,
 		Cols:      msg.Cols,
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: timestamp,
+		Data:      data, // Store rows:cols in Data field for signing
 	}
+	// Sign with the data string containing rows:cols
+	cmdMsg.Signature = s.SignMessage("terminal_resize", msg.ClientID, data, timestamp)
 	return s.sendMessageToClient(msg.ClientID, cmdMsg, fmt.Sprintf("Error sending terminal resize to client %s", msg.ClientID))
 }
 
@@ -166,21 +180,26 @@ func (h *BroadcastCommandHandler) Handle(s *Server, msg Message) error {
 		return fmt.Errorf("no clients connected")
 	}
 
-	// Prepare command message
-	cmdMsg := Message{
-		Type:      "terminal_input",
-		Data:      msg.Command + "\n",
-		Binary:    false,
-		Timestamp: time.Now().Format(time.RFC3339),
-	}
-	cmdJSON := safeMarshal(cmdMsg)
-	if cmdJSON == nil {
-		return fmt.Errorf("failed to marshal broadcast command message")
-	}
-
-	// Send to all clients
+	// Send to all clients with individual signatures
 	successCount := 0
+	timestamp := time.Now().Format(time.RFC3339)
+	commandData := msg.Command + "\n"
+	
 	for _, client := range clientsCopy {
+		// Create signed message for each client
+		cmdMsg := Message{
+			Type:      "terminal_input",
+			Data:      commandData,
+			Binary:    false,
+			Timestamp: timestamp,
+			Signature: s.SignMessage("terminal_input", client.ID, commandData, timestamp),
+		}
+		cmdJSON := safeMarshal(cmdMsg)
+		if cmdJSON == nil {
+			log.Printf("Error marshaling broadcast command for client %s", client.ID)
+			continue
+		}
+
 		client.mu.Lock()
 		err := client.Conn.WriteMessage(websocket.TextMessage, cmdJSON)
 		client.mu.Unlock()

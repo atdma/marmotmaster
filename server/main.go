@@ -125,6 +125,9 @@ func main() {
 	fs := http.FileServer(http.Dir(staticDir))
 	http.Handle("/", fs)
 
+	// Authentication endpoint
+	http.HandleFunc("/api/auth", server.HandleAuthenticate)
+	
 	// WebSocket endpoints
 	http.HandleFunc("/ws/client", server.HandleClientConnection)
 	http.HandleFunc("/ws/ui", server.HandleWebUIConnection)

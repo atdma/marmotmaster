@@ -9,5 +9,6 @@ type Message struct {
 	Rows      int    `json:"rows,omitempty"`
 	Cols      int    `json:"cols,omitempty"`
 	Timestamp string `json:"timestamp,omitempty"`
+	Signature string `json:"signature,omitempty"` // HMAC signature for command verification
 }
 

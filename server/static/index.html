@@ -252,9 +252,10 @@
         let term = null;
         let fitAddon = null;
         let currentPassword = null;
+        let sessionToken = null;
         let isAuthenticated = false;
 
-        function attemptLogin() {
+        async function attemptLogin() {
             const passwordInput = document.getElementById('loginPassword');
             const errorMsg = document.getElementById('loginError');
             const loginBtn = document.getElementById('loginBtn');
@@ -265,9 +266,43 @@
             loginBtn.textContent = 'Connecting...';
             errorMsg.classList.add('hidden');
             
-            // Store password (can be empty if no password required) and attempt connection
-            currentPassword = password;
-            connect(password);
+            try {
+                // Authenticate via POST to get session token
+                const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+                const authUrl = `${protocol}//${window.location.host}/api/auth`;
+                
+                const response = await fetch(authUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ password: password })
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        errorMsg.textContent = 'Invalid password';
+                        errorMsg.classList.remove('hidden');
+                        loginBtn.disabled = false;
+                        loginBtn.textContent = 'Connect';
+                        return;
+                    }
+                    throw new Error(`Authentication failed: ${response.status}`);
+                }
+                
+                const authData = await response.json();
+                sessionToken = authData.token;
+                currentPassword = password; // Store for potential reconnection
+                
+                // Now connect with token
+                connect(sessionToken);
+            } catch (error) {
+                console.error('Authentication error:', error);
+                errorMsg.textContent = 'Authentication failed. Please try again.';
+                errorMsg.classList.remove('hidden');
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Connect';
+            }
         }
 
         function showLoginModal() {
@@ -312,15 +347,15 @@
             isAuthenticated = true;
         }
 
-        function connect(password) {
+        function connect(token) {
             // Use wss:// if page is loaded over HTTPS, otherwise use ws://
             // For self-signed certs, browser will show warning but connection will work
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             let wsUrl = `${protocol}//${window.location.host}/ws/ui`;
             
-            // Add password as query parameter if provided
-            if (password) {
-                wsUrl += `?password=${encodeURIComponent(password)}`;
+            // Add token as query parameter if provided
+            if (token) {
+                wsUrl += `?token=${encodeURIComponent(token)}`;
             }
             
             ws = new WebSocket(wsUrl);
@@ -339,8 +374,8 @@
             ws.onclose = (event) => {
                 updateStatus(false);
                 // If we were authenticated and connection closed, try to reconnect
-                if (isAuthenticated && currentPassword !== null) {
-                    setTimeout(() => connect(currentPassword), 3000);
+                if (isAuthenticated && sessionToken !== null) {
+                    setTimeout(() => connect(sessionToken), 3000);
                 } else if (!isAuthenticated) {
                     // Connection failed - either password required or wrong password
                     // If this was an initial attempt with empty password, password is required
@@ -996,10 +1031,32 @@
         }
 
         // Allow Enter key to send broadcast command
-        document.addEventListener('DOMContentLoaded', () => {
-            // Try to connect without password first to check if password is required
-            // If connection fails, we'll show the login modal
-            connect('');
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Try to authenticate without password first to check if password is required
+            try {
+                const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+                const authUrl = `${protocol}//${window.location.host}/api/auth`;
+                
+                const response = await fetch(authUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ password: '' })
+                });
+                
+                if (response.ok) {
+                    const authData = await response.json();
+                    sessionToken = authData.token;
+                    connect(sessionToken);
+                } else {
+                    // Password required
+                    showLoginModal();
+                }
+            } catch (error) {
+                console.error('Initial authentication check failed:', error);
+                showLoginModal();
+            }
         });
     </script>
 </body>

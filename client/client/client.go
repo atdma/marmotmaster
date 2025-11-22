@@ -1,8 +1,11 @@
 package client
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -25,11 +28,12 @@ func safeMarshal(v interface{}) []byte {
 
 // Client represents a connection to the MarmotMaster server
 type Client struct {
-	conn      *websocket.Conn
+	conn       *websocket.Conn
 	serverURL string
-	clientID  string
-	done      chan struct{}
-	ptyMgr    *PTYManager
+	clientID   string
+	done       chan struct{}
+	ptyMgr     *PTYManager
+	signingKey []byte // Key for verifying message signatures
 }
 
 // NewClient creates a new client instance
@@ -103,6 +107,25 @@ func (c *Client) Run() {
 			continue
 		}
 
+		// Handle special signing_key message
+		if msg.Type == "signing_key" {
+			// Parse the signing key message
+			var keyMsg struct {
+				Type       string `json:"type"`
+				SigningKey string `json:"signing_key"`
+			}
+			if err := json.Unmarshal(message, &keyMsg); err == nil && keyMsg.SigningKey != "" {
+				keyBytes, err := base64.StdEncoding.DecodeString(keyMsg.SigningKey)
+				if err != nil {
+					log.Printf("Error decoding signing key: %v", err)
+					continue
+				}
+				c.signingKey = keyBytes
+				log.Printf("Received signing key from server")
+			}
+			continue
+		}
+
 		c.handleMessage(msg)
 	}
 }
@@ -163,8 +186,45 @@ func (c *Client) SelfDestruct() {
 	os.Exit(0)
 }
 
+// verifySignature verifies the HMAC signature of a message
+func (c *Client) verifySignature(msg Message) bool {
+	// If no signing key yet, allow messages (for initial connection)
+	if len(c.signingKey) == 0 {
+		return true
+	}
+
+	// If no signature provided, reject (except for ping/pong)
+	if msg.Signature == "" && msg.Type != "ping" && msg.Type != "pong" {
+		log.Printf("Message missing signature: %s", msg.Type)
+		return false
+	}
+
+	// For terminal_resize, use rows:cols as data
+	data := msg.Data
+	if msg.Type == "terminal_resize" {
+		data = fmt.Sprintf("%d:%d", msg.Rows, msg.Cols)
+	}
+
+	// Create expected signature
+	payload := fmt.Sprintf("%s:%s:%s:%s", msg.Type, c.clientID, data, msg.Timestamp)
+	mac := hmac.New(sha256.New, c.signingKey)
+	mac.Write([]byte(payload))
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+	// Compare signatures using constant-time comparison
+	return hmac.Equal([]byte(msg.Signature), []byte(expectedSig))
+}
+
 // handleMessage processes incoming messages from the server
 func (c *Client) handleMessage(msg Message) {
+	// Verify signature for command messages (except ping/pong)
+	if msg.Type != "ping" && msg.Type != "pong" && msg.Type != "signing_key" {
+		if !c.verifySignature(msg) {
+			log.Printf("Invalid signature for message type: %s, rejecting", msg.Type)
+			return
+		}
+	}
+
 	switch msg.Type {
 	case "terminal_input":
 		var data []byte

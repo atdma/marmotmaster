@@ -38,6 +38,16 @@ func (s *Server) HandleClientConnection(w http.ResponseWriter, r *http.Request) 
 
 	s.register <- client
 
+	// Send signing key to client immediately after connection
+	signingKeyMsg := map[string]interface{}{
+		"type":       "signing_key",
+		"signing_key": base64.StdEncoding.EncodeToString(s.GetSigningKey()),
+	}
+	keyJSON := safeMarshal(signingKeyMsg)
+	if keyJSON != nil {
+		conn.WriteMessage(websocket.TextMessage, keyJSON)
+	}
+
 	go s.handleClientMessages(client)
 }
 
@@ -164,16 +174,70 @@ func (s *Server) handleClientMessages(client *Client) {
 	}
 }
 
-// HandleWebUIConnection handles new web UI WebSocket connections
-func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
+// HandleAuthenticate handles HTTP POST authentication requests
+func (s *Server) HandleAuthenticate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
 	// Check password if required
 	if s.uiPasswordHash != nil {
-		providedPassword := r.URL.Query().Get("password")
-		if !s.CheckUIPassword(providedPassword) {
-			log.Printf("Web UI connection rejected: invalid password")
+		if !s.CheckUIPassword(req.Password) {
+			log.Printf("Authentication failed: invalid password")
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
+	}
+
+	// Create session token
+	token, err := s.CreateSession()
+	if err != nil {
+		log.Printf("Failed to create session: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Return token and signing key (clients need this to verify signatures)
+	response := map[string]interface{}{
+		"token":       token,
+		"signing_key": base64.StdEncoding.EncodeToString(s.GetSigningKey()),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// HandleWebUIConnection handles new web UI WebSocket connections
+func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
+	// Get token from query parameter or Authorization header
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		// Try Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+			token = authHeader[7:]
+		}
+	}
+
+	// Validate session token if password protection is enabled
+	authenticated := s.uiPasswordHash == nil // If no password required, auto-authenticate
+	if s.uiPasswordHash != nil {
+		if !s.ValidateSession(token) {
+			log.Printf("Web UI connection rejected: invalid or missing token")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		authenticated = true
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -185,12 +249,7 @@ func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
 	uiConn := &UIConnection{
 		Conn:          conn,
 		LastPong:      time.Now(),
-		Authenticated: s.uiPasswordHash == nil, // If no password required, auto-authenticate
-	}
-	
-	// If password was required and provided, mark as authenticated
-	if s.uiPasswordHash != nil {
-		uiConn.Authenticated = true
+		Authenticated: authenticated,
 	}
 	
 	// Set read deadline for connection health checks
