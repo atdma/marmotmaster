@@ -22,7 +22,8 @@ MarmotMaster is a **Command & Control (C2)** framework written in Go. Think of i
 - **💀 Self-Destruct Mode** - Clients can delete themselves. Perfect for when things get hot.
 - **📡 Broadcast Commands** - Send the same command to all clients at once. Mass orchestration, baby!
 - **🔄 Auto-Reconnect** - Clients automatically reconnect if the connection drops. Set it and forget it.
-- **🔐 UI Password Protection** - Password protect the web UI with bcrypt hashing. Clients can still connect without authentication.
+- **🔐 Session-Based Authentication** - Secure session tokens with 24-hour expiration. No passwords in URLs!
+- **✍️ Request Signing** - All commands are signed with HMAC-SHA256. Clients verify signatures before executing.
 
 ---
 
@@ -72,8 +73,9 @@ The server will:
 - Generate self-signed certificates automatically (first run only)
 - Start an HTTPS server on port 8443 (or whatever you specify)
 - Serve a web UI at `https://localhost:8443` (or your IP)
+- Accept authentication requests at `/api/auth` (POST)
 - Accept client connections on `/ws/client`
-- Accept UI connections on `/ws/ui`
+- Accept UI connections on `/ws/ui` (requires session token)
 
 ### Running the Client
 
@@ -106,8 +108,11 @@ The client will:
 1. Open your browser and navigate to `https://your-server-ip:8443`
 2. Accept the security warning
 3. If password protection is enabled, enter the password in the login modal
+   - The UI will authenticate via POST to `/api/auth` and receive a session token
+   - The token is used for the WebSocket connection (no password in URLs!)
 4. Select a client from the sidebar
 5. Start typing commands like you own the place
+   - All commands are automatically signed with HMAC before being sent to clients
 
 ### Command Line Arguments
 
@@ -212,8 +217,38 @@ The binaries will be in the `bin/` directory:
 
 ## 🔒 Security Notes (The Boring Part)
 
-- **UI Password Protection** - The web UI can be password protected using bcrypt hashing via the `-hash` flag. Passwords are never stored in plaintext - only bcrypt hashes are kept in memory.
+### Authentication & Authorization
+
+- **Session Token Authentication** - The web UI uses secure session tokens instead of passwords in URLs. Tokens are:
+  - Generated using cryptographically secure random bytes
+  - Valid for 24 hours before expiration
+  - Automatically cleaned up when expired
+  - Never transmitted in URLs (only in WebSocket query params or headers)
+
+- **UI Password Protection** - The web UI can be password protected using bcrypt hashing via the `-hash` flag. Authentication flow:
+  1. User submits password via POST to `/api/auth`
+  2. Server validates password against bcrypt hash
+  3. Server returns session token and signing key
+  4. UI uses token for WebSocket connection (no password in URLs!)
+
 - **Client Authentication** - Client connections (`/ws/client`) do not require authentication and can connect freely. Only the web UI (`/ws/ui`) can be password protected.
+
+### Command Signing & Verification
+
+- **HMAC-SHA256 Request Signing** - All commands sent to clients are signed with HMAC-SHA256:
+  - Server generates a random 32-byte signing key on startup
+  - Signing key is sent to clients upon connection
+  - Each command includes a signature based on: message type, client ID, data, and timestamp
+  - Signatures prevent command tampering and replay attacks
+
+- **Client-Side Verification** - Clients verify all incoming commands:
+  - Clients receive and store the signing key from the server
+  - Every command message is verified before execution
+  - Invalid or missing signatures are rejected
+  - Uses constant-time comparison to prevent timing attacks
+
+### Other Security Considerations
+
 - **No rate limiting** - If someone wants to spam your server, they can. Add rate limiting if you care.
 - **No encryption at rest** - We don't store anything, so this isn't really an issue, but we're mentioning it anyway.
 - **Self-signed certificates** - By default, the server uses self-signed certificates. Browsers will show security warnings, but this is expected behavior.
@@ -229,6 +264,8 @@ The binaries will be in the `bin/` directory:
 - No command history in the web UI (yet)
 - Windows support exists but is less tested than Unix
 - No built-in file transfer (yet - use `base64` encoding if you're desperate)
+- Session tokens are stored in memory (lost on server restart)
+- Signing keys are regenerated on each server restart (clients need to reconnect)
 
 ---
 
