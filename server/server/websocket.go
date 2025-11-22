@@ -166,6 +166,16 @@ func (s *Server) handleClientMessages(client *Client) {
 
 // HandleWebUIConnection handles new web UI WebSocket connections
 func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
+	// Check password if required
+	if s.uiPasswordHash != nil {
+		providedPassword := r.URL.Query().Get("password")
+		if !s.CheckUIPassword(providedPassword) {
+			log.Printf("Web UI connection rejected: invalid password")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -173,8 +183,14 @@ func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uiConn := &UIConnection{
-		Conn:     conn,
-		LastPong: time.Now(),
+		Conn:          conn,
+		LastPong:      time.Now(),
+		Authenticated: s.uiPasswordHash == nil, // If no password required, auto-authenticate
+	}
+	
+	// If password was required and provided, mark as authenticated
+	if s.uiPasswordHash != nil {
+		uiConn.Authenticated = true
 	}
 	
 	// Set read deadline for connection health checks
@@ -272,6 +288,17 @@ func (s *Server) HandleWebUIConnection(w http.ResponseWriter, r *http.Request) {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("UI WebSocket error: %v", err)
 			}
+			break
+		}
+
+		// Check authentication before processing any messages
+		uiConn.mu.Lock()
+		authenticated := uiConn.Authenticated
+		uiConn.mu.Unlock()
+		
+		if !authenticated {
+			log.Printf("Unauthenticated UI connection attempted to send message, closing")
+			conn.Close()
 			break
 		}
 

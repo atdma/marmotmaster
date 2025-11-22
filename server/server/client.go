@@ -17,8 +17,9 @@ type Client struct {
 
 // UIConnection represents a web UI WebSocket connection
 type UIConnection struct {
-	Conn     *websocket.Conn
-	mu       sync.Mutex
-	LastPong time.Time
+	Conn          *websocket.Conn
+	mu            sync.Mutex
+	LastPong      time.Time
+	Authenticated bool // Whether this connection has been authenticated
 }
 

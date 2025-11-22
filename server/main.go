@@ -20,18 +20,25 @@ func main() {
 	// Command-line flags
 	host := flag.String("host", "", "Host address to bind to (default: all interfaces, 0.0.0.0)")
 	port := flag.Int("port", 8443, "Port to listen on (default: 8443)")
+	uiPasswordHash := flag.String("hash", "", "Bcrypt hash for web UI access (default: no password)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s -host 0.0.0.0 -port 8443\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s -host 192.168.1.100 -port 443\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -host 192.168.1.100 -port 443 -hash '$2a$10$...'\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -port 8080\n", os.Args[0])
 	}
 	flag.Parse()
 
 	server := server.NewServer()
+	if *uiPasswordHash != "" {
+		if err := server.SetUIPasswordHash(*uiPasswordHash); err != nil {
+			log.Fatalf("Failed to set UI password hash: %v", err)
+		}
+		log.Printf("Web UI password protection enabled")
+	}
 	go server.Run()
 
 	// Find static directory

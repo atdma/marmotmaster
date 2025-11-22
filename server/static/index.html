@@ -133,6 +133,50 @@
         </div>
     </div>
 
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 hidden flex items-center justify-center transition-opacity">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full mx-4 transform transition-all opacity-0 scale-95" onclick="event.stopPropagation()" id="loginModalContent">
+            <div class="p-6">
+                <div class="flex items-center justify-center mb-6">
+                    <div class="w-16 h-16 bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900 dark:to-purple-900 rounded-lg flex items-center justify-center">
+                        <svg class="w-8 h-8 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <h3 class="text-2xl font-semibold text-gray-900 dark:text-gray-100 text-center mb-2">
+                    MarmotMaster Access
+                </h3>
+                <p class="text-sm text-gray-600 dark:text-gray-400 text-center mb-6">
+                    Enter password to access the control panel
+                </p>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Password
+                    </label>
+                    <input 
+                        type="password" 
+                        id="loginPassword" 
+                        placeholder="Enter password..."
+                        class="w-full px-4 py-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        onkeydown="if(event.key === 'Enter') attemptLogin()"
+                        autofocus
+                    >
+                    <p id="loginError" class="mt-2 text-sm text-red-600 dark:text-red-400 hidden"></p>
+                </div>
+                
+                <button 
+                    id="loginBtn"
+                    onclick="attemptLogin()"
+                    class="w-full px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                >
+                    Connect
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Broadcast Command Modal -->
     <div id="broadcastModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 hidden items-center justify-center transition-opacity" onclick="closeBroadcastModal()">
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full mx-4 transform transition-all opacity-0 scale-95" onclick="event.stopPropagation()" id="broadcastModalContent">
@@ -207,17 +251,84 @@
         let clients = {};
         let term = null;
         let fitAddon = null;
+        let currentPassword = null;
+        let isAuthenticated = false;
 
-        function connect() {
+        function attemptLogin() {
+            const passwordInput = document.getElementById('loginPassword');
+            const errorMsg = document.getElementById('loginError');
+            const loginBtn = document.getElementById('loginBtn');
+            const password = passwordInput.value.trim();
+            
+            // Disable button during connection attempt
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Connecting...';
+            errorMsg.classList.add('hidden');
+            
+            // Store password (can be empty if no password required) and attempt connection
+            currentPassword = password;
+            connect(password);
+        }
+
+        function showLoginModal() {
+            const loginModal = document.getElementById('loginModal');
+            const loginModalContent = document.getElementById('loginModalContent');
+            const passwordInput = document.getElementById('loginPassword');
+            const errorMsg = document.getElementById('loginError');
+            const loginBtn = document.getElementById('loginBtn');
+            
+            loginModal.classList.remove('hidden');
+            loginModal.classList.add('flex');
+            passwordInput.value = '';
+            errorMsg.classList.add('hidden');
+            loginBtn.disabled = false;
+            loginBtn.textContent = 'Connect';
+            isAuthenticated = false;
+            
+            // Animate in
+            setTimeout(() => {
+                if (loginModalContent) {
+                    loginModalContent.style.opacity = '1';
+                    loginModalContent.style.transform = 'scale(1)';
+                }
+                passwordInput.focus();
+            }, 10);
+        }
+
+        function hideLoginModal() {
+            const loginModal = document.getElementById('loginModal');
+            const loginModalContent = document.getElementById('loginModalContent');
+            
+            // Animate out
+            if (loginModalContent) {
+                loginModalContent.style.opacity = '0';
+                loginModalContent.style.transform = 'scale(0.95)';
+            }
+            
+            setTimeout(() => {
+                loginModal.classList.add('hidden');
+                loginModal.classList.remove('flex');
+            }, 200);
+            isAuthenticated = true;
+        }
+
+        function connect(password) {
             // Use wss:// if page is loaded over HTTPS, otherwise use ws://
             // For self-signed certs, browser will show warning but connection will work
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/ui`;
+            let wsUrl = `${protocol}//${window.location.host}/ws/ui`;
+            
+            // Add password as query parameter if provided
+            if (password) {
+                wsUrl += `?password=${encodeURIComponent(password)}`;
+            }
             
             ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
                 updateStatus(true);
+                // Hide login modal if it's visible (connection succeeded)
+                hideLoginModal();
             };
 
             ws.onmessage = (event) => {
@@ -225,13 +336,40 @@
                 handleMessage(msg);
             };
 
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 updateStatus(false);
-                setTimeout(connect, 3000);
+                // If we were authenticated and connection closed, try to reconnect
+                if (isAuthenticated && currentPassword !== null) {
+                    setTimeout(() => connect(currentPassword), 3000);
+                } else if (!isAuthenticated) {
+                    // Connection failed - either password required or wrong password
+                    // If this was an initial attempt with empty password, password is required
+                    if (currentPassword === '' || currentPassword === null) {
+                        showLoginModal();
+                    } else {
+                        // Password was provided but wrong, show error in login modal
+                        showLoginModal();
+                        const errorMsg = document.getElementById('loginError');
+                        const loginBtn = document.getElementById('loginBtn');
+                        errorMsg.textContent = 'Authentication failed. Please check your password.';
+                        errorMsg.classList.remove('hidden');
+                        loginBtn.disabled = false;
+                        loginBtn.textContent = 'Connect';
+                    }
+                }
             };
 
             ws.onerror = (error) => {
                 console.error('WebSocket error:', error);
+                // On error, show login modal if not authenticated
+                if (!isAuthenticated) {
+                    const errorMsg = document.getElementById('loginError');
+                    const loginBtn = document.getElementById('loginBtn');
+                    errorMsg.textContent = 'Connection failed. Please try again.';
+                    errorMsg.classList.remove('hidden');
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = 'Connect';
+                }
             };
         }
 
@@ -859,9 +997,10 @@
 
         // Allow Enter key to send broadcast command
         document.addEventListener('DOMContentLoaded', () => {
+            // Try to connect without password first to check if password is required
+            // If connection fails, we'll show the login modal
+            connect('');
         });
-
-        connect();
     </script>
 </body>
 </html>

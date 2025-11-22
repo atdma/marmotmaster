@@ -22,7 +22,7 @@ MarmotMaster is a **Command & Control (C2)** framework written in Go. Think of i
 - **💀 Self-Destruct Mode** - Clients can delete themselves. Perfect for when things get hot.
 - **📡 Broadcast Commands** - Send the same command to all clients at once. Mass orchestration, baby!
 - **🔄 Auto-Reconnect** - Clients automatically reconnect if the connection drops. Set it and forget it.
-- **🔐 Optional Authentication** - ~~Password protect your server~~ (Coming soon - currently no authentication required)
+- **🔐 UI Password Protection** - Password protect the web UI with bcrypt hashing. Clients can still connect without authentication.
 
 ---
 
@@ -62,9 +62,11 @@ make run-server
 cd bin
 ./marmotmaster-server -host 192.168.1.100 -port 8443
 
-# Note: Password authentication is not currently implemented
-# The server accepts connections without authentication by default
+# With UI password protection (bcrypt hash)
+./marmotmaster-server -host 192.168.1.100 -port 8443 -hash '$2a$10$...'
 ```
+
+**Note:** The `-hash` flag accepts a bcrypt hash for web UI authentication. Clients can still connect without authentication. Generate bcrypt hashes using online tools or other utilities.
 
 The server will:
 - Generate self-signed certificates automatically (first run only)
@@ -103,14 +105,16 @@ The client will:
 
 1. Open your browser and navigate to `https://your-server-ip:8443`
 2. Accept the security warning
-3. Select a client from the sidebar
-4. Start typing commands like you own the place
+3. If password protection is enabled, enter the password in the login modal
+4. Select a client from the sidebar
+5. Start typing commands like you own the place
 
 ### Command Line Arguments
 
 **Server:**
 - `-host` - Host address to bind to (default: `0.0.0.0` - all interfaces)
 - `-port` - Port to listen on (default: `8443`)
+- `-hash` - Bcrypt hash for web UI password protection (default: no password required)
 
 **Client:**
 - `-host` - Server hostname or IP (default: `localhost`)
@@ -208,10 +212,11 @@ The binaries will be in the `bin/` directory:
 
 ## 🔒 Security Notes (The Boring Part)
 
-- **No authentication** - Currently, there's no password protection. Anyone who can reach your server can access the web UI. Don't expose this to the internet without a firewall or reverse proxy with auth.
+- **UI Password Protection** - The web UI can be password protected using bcrypt hashing via the `-hash` flag. Passwords are never stored in plaintext - only bcrypt hashes are kept in memory.
+- **Client Authentication** - Client connections (`/ws/client`) do not require authentication and can connect freely. Only the web UI (`/ws/ui`) can be password protected.
 - **No rate limiting** - If someone wants to spam your server, they can. Add rate limiting if you care.
 - **No encryption at rest** - We don't store anything, so this isn't really an issue, but we're mentioning it anyway.
-- **Client connections don't require auth** - Neither do UI connections currently. Everything is open by default.
+- **Self-signed certificates** - By default, the server uses self-signed certificates. Browsers will show security warnings, but this is expected behavior.
 
 **TL;DR:** This is a tool. Use it responsibly. We're not responsible if you do something stupid with it.
 

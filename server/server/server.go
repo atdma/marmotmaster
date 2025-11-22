@@ -1,11 +1,13 @@
 package server
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Server manages WebSocket connections and message routing
@@ -18,6 +20,7 @@ type Server struct {
 	register      chan *Client
 	unregister    chan *Client
 	handlers      map[string]MessageHandler
+	uiPasswordHash []byte // Bcrypt hash of password for UI access (nil means no password required)
 }
 
 // NewServer creates a new server instance
@@ -29,6 +32,7 @@ func NewServer() *Server {
 		register:      make(chan *Client),
 		unregister:    make(chan *Client),
 		handlers:      make(map[string]MessageHandler),
+		uiPasswordHash: nil,
 	}
 	
 	// Register message handlers
@@ -39,6 +43,29 @@ func NewServer() *Server {
 	s.handlers["broadcast_command"] = &BroadcastCommandHandler{}
 	
 	return s
+}
+
+// SetUIPasswordHash sets the bcrypt hash for UI access
+// The hash should be a valid bcrypt hash string (e.g., generated with bcrypt.GenerateFromPassword)
+func (s *Server) SetUIPasswordHash(hash string) error {
+	// Validate that the provided string is a valid bcrypt hash
+	// We do this by attempting to compare it with a dummy password
+	// If it's not a valid hash, bcrypt will return an error
+	_, err := bcrypt.Cost([]byte(hash))
+	if err != nil {
+		return fmt.Errorf("invalid bcrypt hash: %v", err)
+	}
+	s.uiPasswordHash = []byte(hash)
+	return nil
+}
+
+// CheckUIPassword checks if the provided password matches the stored hash
+func (s *Server) CheckUIPassword(password string) bool {
+	if s.uiPasswordHash == nil {
+		return true // No password required
+	}
+	err := bcrypt.CompareHashAndPassword(s.uiPasswordHash, []byte(password))
+	return err == nil
 }
 
 // Run starts the server's main event loop
