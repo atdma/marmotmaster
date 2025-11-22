@@ -38,8 +38,8 @@ MarmotMaster is a **Command & Control (C2)** framework written in Go. Think of i
 
 ```bash
 # Clone this repo (or download it, we don't judge)
-git clone <your-repo-url>
-cd C2
+git clone https://github.com/atdma/marmotmaster
+cd marmotmaster
 
 # Get dependencies
 go mod download
