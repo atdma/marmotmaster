@@ -16,6 +16,34 @@ import (
 	"marmotmaster/server/static"
 )
 
+// findBinDir finds the bin directory relative to the executable
+func findBinDir() (string, error) {
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to get executable path: %v", err)
+	}
+	execDir := filepath.Dir(execPath)
+	
+	// Try multiple possible locations for bin directory
+	binDirs := []string{
+		execDir,                                    // bin/ (when running from bin/)
+		filepath.Join(execDir, "..", "bin"),       // ../bin (when running from server/)
+		filepath.Join(execDir, "bin"),             // bin/ (when running from root)
+		"./bin",                                    // Current directory
+		"../bin",                                   // Relative to current dir
+	}
+	
+	for _, dir := range binDirs {
+		clientPath := filepath.Join(dir, "marmotmaster-client")
+		if info, err := os.Stat(clientPath); err == nil && !info.IsDir() {
+			log.Printf("Found client binary at: %s", clientPath)
+			return dir, nil
+		}
+	}
+	
+	return "", fmt.Errorf("bin directory not found. Tried: %v", binDirs)
+}
+
 func main() {
 	// Command-line flags
 	host := flag.String("host", "", "Host address to bind to (default: all interfaces, 0.0.0.0)")
@@ -47,14 +75,6 @@ func main() {
 		log.Fatalf("Static directory error: %v", err)
 	}
 	
-	// Serve static files
-	fs := http.FileServer(http.Dir(staticDir))
-	http.Handle("/", fs)
-
-	// WebSocket endpoints
-	http.HandleFunc("/ws/client", server.HandleClientConnection)
-	http.HandleFunc("/ws/ui", server.HandleWebUIConnection)
-
 	// Determine certificate paths
 	certDir := "."
 	certPath := filepath.Join(certDir, "cert.pem")
@@ -78,6 +98,36 @@ func main() {
 		listenHost = "0.0.0.0" // Listen on all interfaces by default
 	}
 	listenAddr := net.JoinHostPort(listenHost, strconv.Itoa(*port))
+	
+	// Find bin directory for client binaries
+	binDir, err := findBinDir()
+	if err != nil {
+		log.Printf("Warning: Bin directory not found, client downloads will not be available: %v", err)
+	} else {
+		log.Printf("Client binaries available at: https://%s/download/client", listenAddr)
+		// Serve client binaries at /download/client (no authentication required)
+		http.HandleFunc("/download/client", func(w http.ResponseWriter, r *http.Request) {
+			clientPath := filepath.Join(binDir, "marmotmaster-client")
+			// Check if file exists
+			if _, err := os.Stat(clientPath); os.IsNotExist(err) {
+				http.NotFound(w, r)
+				return
+			}
+			// Set headers for file download
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", "marmotmaster-client"))
+			// Serve the file
+			http.ServeFile(w, r, clientPath)
+		})
+	}
+	
+	// Serve static files
+	fs := http.FileServer(http.Dir(staticDir))
+	http.Handle("/", fs)
+
+	// WebSocket endpoints
+	http.HandleFunc("/ws/client", server.HandleClientConnection)
+	http.HandleFunc("/ws/ui", server.HandleWebUIConnection)
 
 	// Create HTTP server with TLS
 	srv := &http.Server{
