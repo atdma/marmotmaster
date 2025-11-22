@@ -2,6 +2,8 @@
 
 > **"Because sometimes you need to control things from a distance... and look cool doing it."**
 
+![MarmotMaster Screenshot](screenshot.png)
+
 ---
 
 ## 🎯 What is this?
